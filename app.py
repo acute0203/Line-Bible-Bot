@@ -94,7 +94,7 @@ def load_bible_from_txt():
 bible_dict = load_bible_from_txt()
 
 def search_by_book_ch(search_text):
-    message = "No content"
+    message = ""
     search_text_list = re.split("[^\u4e00-\u9fa5\w\d]",search_text)
     if len(search_text_list) == 1:
         book = search_text_list[0]
@@ -142,7 +142,7 @@ def random_choice_music():
 
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
-    message_text = event.message.text.title()
+    message_text = event.message.text.title().strip()
     if message_text == "影片":
         buttons_template = TemplateSendMessage(
                 alt_text='影片 template',
