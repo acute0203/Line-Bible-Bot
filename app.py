@@ -19,6 +19,8 @@ from linebot.models import *
 
 app = Flask(__name__)
 
+bible_abrev_math = ['1Sa','2Sa','1Ki','2Ki','1Ch','2Ch','1Co','2Co','1Ts','2Ts','1Ti','2Ti','1Pe','2Pe','1Jn','2Jn','3Jn']
+
 config = configparser.ConfigParser()
 config.read("config.ini")
 
@@ -51,8 +53,6 @@ def banner_church_news():
     soup = BeautifulSoup(html)
     for post_struct in soup.find_all('h3', class_="post-title"):
         return_message += post_struct.a.text + "\n" + domain + post_struct.a['href'] + "\n"
-        #print(post_struct.a.text)
-        #print(domain + post_struct.a['href'])
     return return_message.strip()
 
 def banner_church_evidence():
@@ -75,7 +75,14 @@ def bible_chapter_ref():
         bible_ref[bible_ref_txt_result[2]] =bible_ref_txt_result[2] 
     return bible_ref
 
-bible_chapter_dict = bible_chapter_ref()
+def bible_eng_to_ch():
+    bible_ref = {}
+    with open("bible_ref.txt") as f:
+        bible_ref_txt = f.read()
+    for bible_ref_txt_line in bible_ref_txt.split("\n"):
+        bible_ref_txt_result = bible_ref_txt_line.split()
+        bible_ref[bible_ref_txt_result[2]] =bible_ref_txt_result[0]
+    return bible_ref
 
 def load_bible_from_txt():
     txt = ""
@@ -91,24 +98,19 @@ def load_bible_from_txt():
         bible_dict[book].append((int(chapter), int(section), content))
     return bible_dict
 
-bible_dict = load_bible_from_txt()
-
 def search_by_book_ch(search_text):
     message = ""
-    search_text_list = re.split("[^\u4e00-\u9fa5\w\d]",search_text)
-    if len(search_text_list) == 1:
-        book = search_text_list[0]
-        if book in bible_chapter_dict:
-            book = bible_chapter_dict[book]
-        if book in bible_dict:
-            message = ""
+    search_text_list = search_pattern(search_text)
+    book = search_text_list[0]
+    if book in bible_chapter_dict:
+        book = bible_chapter_dict[book]
+    if book in bible_dict:
+        if len(search_text_list) < 3:
             for (ch_bible, sec_bible, content) in bible_dict[book]:
-                message += str(ch_bible) + ":" + str(sec_bible) + " " + content + "\n"
-    else: 
-        (book, ch, sec) = search_text_list
-        if book in bible_chapter_dict:
-            book = bible_chapter_dict[book]
-        if book in bible_dict:
+                if len(search_text_list) == 2 and ch_bible == search_text_list[1]:
+                    message += str(ch_bible) + ":" + str(sec_bible) + " " + content + "\n"
+        else: 
+            (book, ch, sec) = (book, search_text_list[1], search_text_list[2])
             for (ch_bible, sec_bible, content) in bible_dict[book]:
                 if int(ch) == ch_bible and int(sec) == sec_bible:
                     message = content
@@ -124,7 +126,7 @@ def church_dedication():
 def random_bible_sentence():
     book = random.choice(list(bible_dict))
     sentence_tuple = random.choice(bible_dict[book])
-    return book +" " + str(sentence_tuple[0]) + ":" + str(sentence_tuple[1]) + " " + str(sentence_tuple[2])
+    return e_to_c_dict[book] +" " + str(sentence_tuple[0]) + ":" + str(sentence_tuple[1]) + " " + str(sentence_tuple[2])
 
 def load_music_from_youtube():
     r = requests.get(url='https://www.googleapis.com/youtube/v3/playlistItems?playlistId=' + playlist_ID + '&maxResults=50&part=snippet%2CcontentDetails&key=' + google_access_key)
@@ -134,17 +136,29 @@ def load_music_from_youtube():
         played_music_dict[play_item['snippet']['title']] = 'https://www.youtube.com/watch?v=' + play_item['contentDetails']['videoId']
     return played_music_dict
 
-music_dict = load_music_from_youtube()
-
 def random_choice_music():
     return_music_title = random.choice(list(music_dict))
     return return_music_title + "\n" + music_dict[return_music_title]
 
-@handler.add(MessageEvent, message = TextMessage)
-def handle_message(event):
-    message_text = event.message.text.title().strip()
-    if message_text == "影片":
-        buttons_template = TemplateSendMessage(
+def search_pattern(search_string):
+    book_list = []
+    need_to_find_book = True
+    for bam in bible_abrev_math:
+        if bam in search_string:
+            search_string = search_string.replace(bam, "").strip()
+            book_list.append(bam)
+            need_to_find_book = False
+            break
+    if need_to_find_book:
+        book_list = re.findall("[\u4e00-\u9fa5a-zA-Z]+", search_string)
+    ch_sec_list = re.findall("[\d]+",search_string)
+    if len(ch_sec_list) == 1:
+        return (book_list[0] ,int(ch_sec_list[0]))
+    else:
+        return (book_list[0] ,int(ch_sec_list[0]) ,int(ch_sec_list[1]))
+
+def video_template():
+    return TemplateSendMessage(
                 alt_text='影片 template',
                 template=ButtonsTemplate(
                     title='主日影片 & 見證影片',
@@ -162,25 +176,36 @@ def handle_message(event):
                     ]
                 )
             )
-        line_bot_api.reply_message(event.reply_token, buttons_template)
-    if message_text == "新聞":
-        message = banner_church_news()
-    elif message_text == "見證":
-        message = banner_church_evidence()
-    elif re.split("[^\u4e00-\u9fa5\w\d]", message_text)[0] in bible_chapter_dict:
-        message = search_by_book_ch(message_text)
-    elif message_text == "奉獻":
-        message = church_dedication()
-    elif message_text == "異象":
-        message = church_imagercy()
-    elif message_text == "抽經文":
-        message = random_bible_sentence()
-    elif message_text == "抽詩歌":
-        message = random_choice_music()
-    line_bot_api.reply_message(
-        event.reply_token,
-        TextSendMessage(text=message))
 
+@handler.add(MessageEvent, message = TextMessage)
+def handle_message(event):
+    message_text = event.message.text.lower().title().strip()
+    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌"]:
+        if message_text == "影片":
+            line_bot_api.reply_message(event.reply_token, video_template())
+        elif message_text == "新聞":
+            message = banner_church_news()
+        elif message_text == "見證":
+            message = banner_church_evidence()
+        elif message_text == "奉獻":
+            message = church_dedication()
+        elif message_text == "異象":
+            message = church_imagercy()
+        elif message_text == "抽經文":
+            message = random_bible_sentence()
+        elif message_text == "抽詩歌":
+            message = random_choice_music()
+    else:
+        if search_pattern(message_text)[0] in bible_chapter_dict:
+            message = search_by_book_ch(message_text)
+    line_bot_api.reply_message(
+            event.reply_token,
+            TextSendMessage(text = message))
+
+bible_chapter_dict = bible_chapter_ref()
+bible_dict = load_bible_from_txt()
+music_dict = load_music_from_youtube()
+e_to_c_dict = bible_eng_to_ch()
 
 if __name__ == "__main__":
     app.run()
