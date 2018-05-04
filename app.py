@@ -15,6 +15,7 @@ from bs4 import BeautifulSoup
 import requests,re
 import configparser
 import random
+from linebot.models import *
 
 app = Flask(__name__)
 
@@ -25,6 +26,7 @@ line_bot_api = LineBotApi(config['line_bot']['Channel_Access_Token'])
 handler = WebhookHandler(config['line_bot']['Channel_Secret'])
 google_access_key = config['google_api']['Google_Access_Key']
 playlist_ID = config['google_api']['Youtube_Playlist']
+
 @app.route("/callback", methods=['POST'])
 def callback():
     # get X-Line-Signature header value
@@ -141,6 +143,26 @@ def random_choice_music():
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
     message_text = event.message.text.title()
+    if message_text == "影片":
+        buttons_template = TemplateSendMessage(
+                alt_text='影片 template',
+                template=ButtonsTemplate(
+                    title='主日影片 & 見證影片',
+                    text='請選擇',
+                    thumbnail_image_url='https://1.bp.blogspot.com/-J5clb3IYsUE/Tjzm7tIgPXI/AAAAAAAAAbs/R8Dy1s5BT-o/s1600/4582085320_71aa29bc70_o.jpg',
+                    actions=[
+                        URITemplateAction(
+                        label='主日影片',
+                        uri='https://www.youtube.com/user/bannerch'
+                        ),
+                        MessageTemplateAction(
+                            label='見證影片',
+                            text='見證'
+                        )
+                    ]
+                )
+            )
+        line_bot_api.reply_message(event.reply_token, buttons_template)
     if message_text == "新聞":
         message = banner_church_news()
     elif message_text == "見證":
