@@ -28,6 +28,7 @@ line_bot_api = LineBotApi(config['line_bot']['Channel_Access_Token'])
 handler = WebhookHandler(config['line_bot']['Channel_Secret'])
 google_access_key = config['google_api']['Google_Access_Key']
 playlist_ID = config['google_api']['Youtube_Playlist']
+QR_Code_URL =  config['line_add_friend_QR_code']['QR_Code_URL']
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -177,10 +178,16 @@ def video_template():
                 )
             )
 
+def add_friend_QR_Code():
+    return ImageSendMessage(
+            original_content_url = QR_Code_URL,
+            preview_image_url = QR_Code_URL
+        )
+
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
     message_text = event.message.text.lower().title().strip()
-    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌"]:
+    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友"]:
         if message_text == "影片":
             line_bot_api.reply_message(event.reply_token, video_template())
         elif message_text == "新聞":
@@ -195,6 +202,8 @@ def handle_message(event):
             message = random_bible_sentence()
         elif message_text == "抽詩歌":
             message = random_choice_music()
+        elif message_text == "加好友":
+            line_bot_api.reply_message(event.reply_token, add_friend_QR_Code())
     else:
         if search_pattern(message_text)[0] in bible_chapter_dict:
             message = search_by_book_ch(message_text)
