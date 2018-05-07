@@ -248,12 +248,44 @@ def return_valid_message(message):
         message = message[:1996] + "..."
     return message
 
+def function_template():
+    return CarouselTemplate(columns=[
+            CarouselColumn(text='請選擇', title='旌旗', actions=[
+                        URITemplateAction(
+                            label='旌旗教會官網',
+                            uri='http://www.bannerch.org/'
+                        ),
+                        MessageTemplateAction(
+                            label='旌旗新聞',
+                            text='新聞'
+                        ),
+                        MessageTemplateAction(
+                            label='週報（僅限六、日）',
+                            text='週報'
+                        ),
+                    ]),
+            CarouselColumn(text='請選擇', title='功能 - 搜尋聖經經文', actions=[
+                        MessageTemplateAction(
+                            label='依書搜尋',
+                            text='可輸入「創世紀、創、馬太福音、太、Rev」搜尋，關於縮寫請參考\nhttp://springbible.fhl.net/Bible2/cgic201/Doc/abbreviation.html'
+                        ),
+                        MessageTemplateAction(
+                            label='依「章」和「節」搜尋',
+                            text='可輸入「創世紀 1、創1、馬太福音2、太 2、Rev1、創世紀 1:1、創1 1、馬太福音2:1、太 2 3、Rev1 1」搜尋，關於縮寫請參考\nhttp://springbible.fhl.net/Bible2/cgic201/Doc/abbreviation.html'
+                        ),
+                        MessageTemplateAction(
+                            label='聖經關鍵字搜尋',
+                            text='目前僅開放 "AND" 及 "OR" 功能。\n使用方法：「查 關鍵字1 關鍵字2&關鍵字3」\nAND 使用符號：「&」\nOR使用符號：「 」<-沒有忘記輸入，就是一個空白\n使用說明：\n「查 創世&光」：搜尋聖經經文中包含「創世」以及「光」關鍵字，經文中需同時出現兩者才回傳，如要限制搜尋出自於哪裡，亦可輸入，本範例為創世紀。\n「查 耶穌 耶和華」：搜尋聖經經文中包含「耶穌」或「耶和華」關鍵字，經文中有出現兩者其一便回傳。\n亦可混合使用，如：「查 耶穌 創世&光 耶和華」'
+                        ),
+                    ])
+            ])
+
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
     message = ""
     message_text = event.message.text.replace("＆","&").replace("　"," ").lower().title().strip()
     is_search_mode = isinstance(search_pattern(message_text),tuple)
-    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友","週報"]:
+    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友","週報","主選單"]:
         if message_text == "影片":
             line_bot_api.reply_message(event.reply_token, video_template())
         elif message_text == "新聞":
@@ -272,6 +304,10 @@ def handle_message(event):
             line_bot_api.reply_message(event.reply_token, add_friend_QR_Code())
         elif message_text == "週報":
             message = parse_week_paper()
+        elif message_text == "主選單":
+            template_message = TemplateSendMessage(
+            alt_text='Carousel 主選單', template=function_template())
+            line_bot_api.reply_message(event.reply_token, template_message)
     elif is_search_mode:
         search_pattern_tuple = search_pattern(message_text)
         if search_pattern_tuple[0] == "查":
