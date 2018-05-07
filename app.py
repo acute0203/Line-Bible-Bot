@@ -264,7 +264,7 @@ def function_template():
                             text='週報'
                         ),
                     ]),
-            CarouselColumn(text='請選擇', title='功能 - 搜尋聖經經文', actions=[
+            CarouselColumn(text='說明本Line Bot聖經搜尋功能', title='功能 - 搜尋聖經經文', actions=[
                         MessageTemplateAction(
                             label='依書搜尋',
                             text='可輸入「創世紀、創、馬太福音、太、Rev」搜尋，關於縮寫請參考\nhttp://springbible.fhl.net/Bible2/cgic201/Doc/abbreviation.html'
