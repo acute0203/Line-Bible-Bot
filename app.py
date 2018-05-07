@@ -14,9 +14,10 @@ from linebot.models import (
 from bs4 import BeautifulSoup
 import requests,re
 import configparser
-import random
+import random,json
 from linebot.models import *
-
+from pandas import DataFrame
+import numpy as np
 app = Flask(__name__)
 
 bible_abrev_math = ['1Sa','2Sa','1Ki','2Ki','1Ch','2Ch','1Co','2Co','1Ts','2Ts','1Ti','2Ti','1Pe','2Pe','1Jn','2Jn','3Jn']
@@ -99,23 +100,24 @@ def load_bible_from_txt():
         bible_dict[book].append((int(chapter), int(section), content))
     return bible_dict
 
-def search_by_book_ch(search_text):
+def search_by_book_ch(search_text_tuple):
     message = ""
-    search_text_list = search_pattern(search_text)
+    search_text_list = search_text_tuple
     book = search_text_list[0]
     if book in bible_chapter_dict:
         book = bible_chapter_dict[book]
     if book in bible_dict:
-        if len(search_text_list) < 3:
-            for (ch_bible, sec_bible, content) in bible_dict[book]:
-                if len(search_text_list) == 2 and ch_bible == search_text_list[1]:
-                    message += str(ch_bible) + ":" + str(sec_bible) + " " + content + "\n"
-        else: 
-            (book, ch, sec) = (book, search_text_list[1], search_text_list[2])
-            for (ch_bible, sec_bible, content) in bible_dict[book]:
-                if int(ch) == ch_bible and int(sec) == sec_bible:
-                    message = content
-                    break
+        for (ch_bible, sec_bible, content) in bible_dict[book]:
+            #('創世紀', 0, 0)
+            if search_text_list[1] == 0 and search_text_list[1] ==0:
+                message += str(ch_bible) + ":" + str(sec_bible) + " " + content + "\n"
+            #('創世紀', 1, 0)
+            elif search_text_list[1] == ch_bible and search_text_list[2] ==0:
+                message += str(ch_bible) + ":" + str(sec_bible) + " " + content + "\n"
+            #('創世紀', 1, 1)
+            elif search_text_list[1] == ch_bible and search_text_list[2] == sec_bible:
+                message = content
+                break
     return message
 
 def church_imagercy():
@@ -153,8 +155,16 @@ def search_pattern(search_string):
     if need_to_find_book:
         book_list = re.findall("[\u4e00-\u9fa5a-zA-Z]+", search_string)
     ch_sec_list = re.findall("[\d]+",search_string)
-    if len(ch_sec_list) == 1:
-        return (book_list[0] ,int(ch_sec_list[0]))
+    if len(ch_sec_list) == 0:
+        if search_string in bible_chapter_dict:
+            eng_book = bible_chapter_dict[search_string]
+            return (eng_book,0,0)
+        elif search_string.startswith("查 "):
+            return ("查",search_string.replace("查 ","",1).strip())
+        else:
+            return search_string
+    elif len(ch_sec_list) == 1:
+        return (book_list[0] ,int(ch_sec_list[0]),0)
     else:
         return (book_list[0] ,int(ch_sec_list[0]) ,int(ch_sec_list[1]))
 
@@ -184,10 +194,66 @@ def add_friend_QR_Code():
             preview_image_url = QR_Code_URL
         )
 
+def parse_week_paper():
+    domain = "http://live.bannerch.org.tw/"
+    html = requests.get(domain).content
+    soup = BeautifulSoup(html)
+    script_list = soup.findAll('script')
+    script_ = ""
+    for script_index in range(len(script_list)):
+        if "currentEvent" in script_list[script_index].text:
+            script_ = script_list[script_index].text.strip()
+            for sc in re.findall("currentEvent:.+}",script_):
+                script_ = sc.replace("currentEvent:","").strip()
+                break
+            break
+    if 'eventNotes' in script_:
+        en = json.loads(script_)['eventNotes']
+    message = ""
+    for sentence in re.findall("[<].+>.+</.+>",en):
+        message += re.sub("</{0,1}\w+>","",sentence).strip().replace("【","\n【") +"\n"
+    return message
+    
+def dict_to_dataFrame():
+    pd_list = []
+    for book in bible_dict:
+        for (ch,sen,con) in bible_dict[book]:
+            pd_list.append((e_to_c_dict[book],ch,sen,con))
+    return DataFrame(pd_list,
+                      columns=list('abcd'))
+
+def search_bible(search_string):
+    search_string_list = search_string.split(" ")
+    message = ""
+    df_result = None
+    df_list = []
+    for s_keyword in search_string_list:
+        if "&" in s_keyword:
+            s_keyword_list = s_keyword.split("&")
+            df_p = (df['a'] + df['d']).str.contains(s_keyword_list[0])
+            for ss_index in range(1,len(s_keyword_list)):
+                df_p = df_p & (df['a'] + df['d']).str.contains(s_keyword_list[ss_index])
+        else:
+            df_p = (df['a'] + df['d']).str.contains(s_keyword)
+        df_list.append(df_p.values)
+    df_result = np.repeat(False, len(df))
+    for df_r in df_list:
+        df_result = df_result | df_r
+    for index, row in df[df_result].iterrows():
+        message += row['a'] + " " + str(row['b']) + ":" + str(row['c']) + " " + row['d'] + "\n"
+    return message
+    
+def return_valid_message(message):
+    if len(message) > 2000:
+        message = message[:1996] + "..."
+    return message
+
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
-    message_text = event.message.text.lower().title().strip()
-    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友"]:
+    message = ""
+    message_text = event.message.text.replace("＆","&").replace("　"," ").lower().title().strip()
+    is_search_mode = isinstance(search_pattern(message_text),tuple)
+    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友","週報"]:
         if message_text == "影片":
             line_bot_api.reply_message(event.reply_token, video_template())
         elif message_text == "新聞":
@@ -204,17 +270,34 @@ def handle_message(event):
             message = random_choice_music()
         elif message_text == "加好友":
             line_bot_api.reply_message(event.reply_token, add_friend_QR_Code())
+        elif message_text == "週報":
+            message = parse_week_paper()
+    elif is_search_mode:
+        search_pattern_tuple = search_pattern(message_text)
+        if search_pattern_tuple[0] == "查":
+            message = search_bible(search_pattern_tuple[1])
+        else:
+            message = search_by_book_ch(search_pattern_tuple)
     else:
-        if search_pattern(message_text)[0] in bible_chapter_dict:
-            message = search_by_book_ch(message_text)
-    line_bot_api.reply_message(
-            event.reply_token,
-            TextSendMessage(text = message))
+        user_id = event.source.user_id
+        profile = line_bot_api.get_profile(user_id)
+        print(profile.display_name)
+        print(profile.user_id)
+        print(profile.picture_url)
+        print(profile.status_message)
+    
+    message = return_valid_message(message)
+
+    if len(message) > 0:
+        line_bot_api.reply_message(
+                event.reply_token,
+                TextSendMessage(text = message))
 
 bible_chapter_dict = bible_chapter_ref()
 bible_dict = load_bible_from_txt()
 music_dict = load_music_from_youtube()
 e_to_c_dict = bible_eng_to_ch()
+df = dict_to_dataFrame()
 
 if __name__ == "__main__":
     app.run()
