@@ -18,6 +18,8 @@ import random,json
 from linebot.models import *
 from pandas import DataFrame
 import numpy as np
+import pymysql
+
 app = Flask(__name__)
 
 bible_abrev_math = ['1Sa','2Sa','1Ki','2Ki','1Ch','2Ch','1Co','2Co','1Ts','2Ts','1Ti','2Ti','1Pe','2Pe','1Jn','2Jn','3Jn']
@@ -30,6 +32,10 @@ handler = WebhookHandler(config['line_bot']['Channel_Secret'])
 google_access_key = config['google_api']['Google_Access_Key']
 playlist_ID = config['google_api']['Youtube_Playlist']
 QR_Code_URL =  config['line_add_friend_QR_code']['QR_Code_URL']
+cacheDB_end_point = config['cacheDB']['end_point']
+cacheDB_account = config['cacheDB']['account']
+cacheDB_pwd = config['cacheDB']['pwd']
+cacheDB_name = config['cacheDB']['name']
 
 @app.route("/callback", methods=['POST'])
 def callback():
@@ -129,6 +135,8 @@ def church_dedication():
 def random_bible_sentence():
     book = random.choice(list(bible_dict))
     sentence_tuple = random.choice(bible_dict[book])
+    while sentence_tuple[2] == "見上節":
+        sentence_tuple = random.choice(bible_dict[book])
     return e_to_c_dict[book] +" " + str(sentence_tuple[0]) + ":" + str(sentence_tuple[1]) + " " + str(sentence_tuple[2])
 
 def load_music_from_youtube():
@@ -260,7 +268,7 @@ def function_template():
                             text='新聞'
                         ),
                         MessageTemplateAction(
-                            label='週報（僅限六、日）',
+                            label='週報（僅限週六、週日）',
                             text='週報'
                         ),
                     ]),
@@ -280,12 +288,92 @@ def function_template():
                     ])
             ])
 
+def get_user_cache(userID):
+    return_list = []
+    db = pymysql.connect(cacheDB_end_point, cacheDB_account,cacheDB_pwd,cacheDB_name,charset='utf8' )
+    cursor = db.cursor()
+    sql = "SELECT CacheText FROM Cache WHERE LineID = '%s'" % (userID)
+    try:
+        cursor.execute(sql)
+        results = cursor.fetchall()
+        for row in results:
+            cache_text = row[0]
+            return_list = json.loads(cache_text)
+    except:
+        print ("Error: unable to fetch data")
+    finally:
+        db.close()
+    return return_list
+
+def store_to_cache(lineID, cache_text_list):
+    db = pymysql.connect(cacheDB_end_point, cacheDB_account,cacheDB_pwd,cacheDB_name,charset='utf8' )
+    cursor = db.cursor()
+    cacheText = json.dumps(cache_text_list, ensure_ascii=False)
+    sql = "INSERT INTO Cache (LineID, CacheDate, CacheText) VALUES('%s', NOW(), '%s') ON DUPLICATE KEY UPDATE LineID='%s',CacheDate = NOW(), CacheText='%s';" % (lineID, cacheText, lineID, cacheText)
+    try:
+        cursor.execute(sql)
+        db.commit()
+    except:
+        print(cacheText)
+        print ("Error: unable to update data")
+    finally:
+        db.close()
+    return "OK"
+
+def delete_cache_table():
+    db = pymysql.connect(cacheDB_end_point, cacheDB_account,cacheDB_pwd,cacheDB_name,charset='utf8' )
+    cursor = db.cursor()
+    sql = "DELETE FROM Cache WHERE TIMESTAMPADD(MINUTE,30,CacheDate) <= NOW() OR CacheText = '[]';"
+    try:
+        cursor.execute(sql)
+        db.commit()
+    except:
+        print ("Error: unable to update data")
+    finally:
+        db.close()
+    return "OK"
+
+def check_valid_message(user_ID , message):
+    message = message.strip()
+    if len(message) > 2000:
+        message_list = message.strip().split("\n")
+        #message_ID_content_dict[user_ID] = message_list
+        print(store_to_cache(user_ID, message_list))
+        return pop_message_from_dict(user_ID)
+    else:
+        return message
+    
+def pop_message_from_dict(user_ID):
+    delete_cache_table()
+    return_message = ""
+    message_content_list = get_user_cache(user_ID)
+    while len(message_content_list) > 0:
+        if len(return_message + "\n" + message_content_list[0]) < 1990:
+            return_message = return_message +"\n"+ message_content_list.pop(0)
+        else:
+            break
+    print("List len:"+str(len(message_content_list)))
+    print(store_to_cache(user_ID, message_content_list))
+    if len(message_content_list) > 0:
+        print(len(return_message))
+        return_message += "\n-請輸入P繼續-"
+    """
+    if len(message_content_list) == 0:
+        print(store_to_cache(user_ID, message_content_list))
+    else:
+        print(store_to_cache(user_ID, message_content_list))
+        #return_message += "\n..."
+        return_message += "\n-請輸入P繼續-"
+    """
+    return return_message.strip()
+
 @handler.add(MessageEvent, message = TextMessage)
 def handle_message(event):
     message = ""
     message_text = event.message.text.replace("＆","&").replace("　"," ").lower().title().strip()
+    user_id = event.source.user_id
     is_search_mode = isinstance(search_pattern(message_text),tuple)
-    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友","週報","主選單"]:
+    if message_text in ["影片", "新聞", "見證", "奉獻", "異象", "抽經文", "抽詩歌","加好友","週報","主選單","p","P"]:
         if message_text == "影片":
             line_bot_api.reply_message(event.reply_token, video_template())
         elif message_text == "新聞":
@@ -308,6 +396,8 @@ def handle_message(event):
             template_message = TemplateSendMessage(
             alt_text='Carousel 主選單', template=function_template())
             line_bot_api.reply_message(event.reply_token, template_message)
+        elif message_text == "p" or message_text == "P" :
+            message = pop_message_from_dict(user_id)
     elif is_search_mode:
         search_pattern_tuple = search_pattern(message_text)
         if search_pattern_tuple[0] == "查":
@@ -322,7 +412,7 @@ def handle_message(event):
         print(profile.picture_url)
         print(profile.status_message)
     
-    message = return_valid_message(message)
+    message = check_valid_message(user_id , message)
 
     if len(message) > 0:
         line_bot_api.reply_message(

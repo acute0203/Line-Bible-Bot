@@ -20,3 +20,4 @@ beautifulsoup4==4.5.3
 line-bot-sdk==1.5.0
 numpy==1.14.0
 pandas==0.22.0
+PyMySQL==0.8.0

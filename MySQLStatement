@@ -1,0 +1,18 @@
+CREATE TABLE Cache (
+    LineID VARCHAR(255) PRIMARY KEY NOT NULL,
+    CacheDate TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+    CacheText MEDIUMTEXT NOT NULL
+    ); 
+    
+DELIMITER //
+CREATE PROCEDURE RemoveCache
+(IN time_interval INT)
+BEGIN
+	DELETE FROM Cache WHERE TIMESTAMPADD(MINUTE,time_interval,CacheDate) <= NOW();
+END //
+DELIMITER ;
+
+CREATE EVENT remove_cache
+    ON SCHEDULE EVERY 30 MINUTE
+    DO
+      CALL RemoveCache(30);
